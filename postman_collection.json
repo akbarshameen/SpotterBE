@@ -1,0 +1,232 @@
+{
+  "info": {
+    "name": "Fuel Route Optimizer",
+    "description": "Cost-optimal fuel stops along a US driving route. Send requests top to bottom; each one asserts the properties that must hold.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. New York to Los Angeles  (send twice - watch api_calls go 1 to 0)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const d = pm.response.json();",
+              "",
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "",
+              "pm.test('total gallons = distance / 10 MPG', () =>",
+              "    pm.expect(d.total_gallons).to.be.closeTo(d.route.distance_miles / 10, 0.06));",
+              "",
+              "pm.test('gallons purchased sum to gallons burned', () =>",
+              "    pm.expect(d.fuel_stops.reduce((t, s) => t + s.gallons_purchased, 0))",
+              "      .to.be.closeTo(d.total_gallons, 0.05));",
+              "",
+              "pm.test('no leg exceeds the 500-mile range', () => {",
+              "    const marks = [0].concat(d.fuel_stops.map(s => s.miles_from_start))",
+              "                     .concat([d.route.distance_miles]);",
+              "    for (let i = 1; i < marks.length; i++) {",
+              "        pm.expect(marks[i] - marks[i - 1], `leg ending at mile ${marks[i]}`)",
+              "          .to.be.at.most(500.001);",
+              "    }",
+              "});",
+              "",
+              "pm.test('every stop is within the 25-mile corridor', () =>",
+              "    d.fuel_stops.forEach(s => pm.expect(s.detour_miles).to.be.at.most(25)));",
+              "",
+              "pm.test('at most one external routing call', () =>",
+              "    pm.expect(d.meta.api_calls).to.be.at.most(1));",
+              "",
+              "console.log(`${d.route.distance_miles} mi | ${d.fuel_stops.length} stops | ` +",
+              "            `$${d.total_fuel_cost_usd} | api_calls=${d.meta.api_calls} | ` +",
+              "            `${d.meta.elapsed_ms} ms`);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": \"New York, NY\",\n  \"finish\": \"Los Angeles, CA\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/route/",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "route", ""]
+        },
+        "description": "Expect ~2810 mi, 13 stops, 281.05 gal, $851.84. Stop 8 (AKAL, Waco NE) buys a full 50 gallons because it is the cheapest fuel for 500 miles."
+      }
+    },
+    {
+      "name": "2. Dallas to Houston  (fits in one tank - only 1 stop)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const d = pm.response.json();",
+              "",
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "",
+              "pm.test('trip is shorter than the tank range', () =>",
+              "    pm.expect(d.route.distance_miles).to.be.below(500));",
+              "",
+              "pm.test('only the departure fill is needed', () => {",
+              "    pm.expect(d.fuel_stops).to.have.lengthOf(1);",
+              "    pm.expect(d.fuel_stops[0].departure_fill).to.be.true;",
+              "});",
+              "",
+              "pm.test('total gallons = distance / 10 MPG', () =>",
+              "    pm.expect(d.total_gallons).to.be.closeTo(d.route.distance_miles / 10, 0.06));",
+              "",
+              "console.log(`${d.route.distance_miles} mi | ${d.fuel_stops.length} stop | ` +",
+              "            `$${d.total_fuel_cost_usd}`);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": \"Dallas, TX\",\n  \"finish\": \"Houston, TX\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/route/",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "route", ""]
+        },
+        "description": "Expect 238 mi, 1 stop, 23.8 gal, $65.66. Same code path as the coast-to-coast route."
+      }
+    },
+    {
+      "name": "3. Seattle to Miami  (longest route, most stops)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const d = pm.response.json();",
+              "",
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "",
+              "pm.test('no leg exceeds the 500-mile range', () => {",
+              "    const marks = [0].concat(d.fuel_stops.map(s => s.miles_from_start))",
+              "                     .concat([d.route.distance_miles]);",
+              "    for (let i = 1; i < marks.length; i++) {",
+              "        pm.expect(marks[i] - marks[i - 1]).to.be.at.most(500.001);",
+              "    }",
+              "});",
+              "",
+              "pm.test('total gallons = distance / 10 MPG', () =>",
+              "    pm.expect(d.total_gallons).to.be.closeTo(d.route.distance_miles / 10, 0.06));",
+              "",
+              "pm.test('stops are ordered along the route', () => {",
+              "    const m = d.fuel_stops.map(s => s.miles_from_start);",
+              "    pm.expect(m).to.eql(m.slice().sort((a, b) => a - b));",
+              "});",
+              "",
+              "console.log(`${d.route.distance_miles} mi | ${d.fuel_stops.length} stops | ` +",
+              "            `$${d.total_fuel_cost_usd}`);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": \"Seattle, WA\",\n  \"finish\": \"Miami, FL\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/route/",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "route", ""]
+        },
+        "description": "Expect ~3303 mi, 14 stops, 330.3 gal, $1029.26."
+      }
+    },
+    {
+      "name": "4. Honolulu to Boston  (no road exists - 404, not a 502)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+              "",
+              "pm.test('explains that no road connects them', () =>",
+              "    pm.expect(pm.response.json().error).to.include('no drivable route'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": \"Honolulu, HI\",\n  \"finish\": \"Boston, MA\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/route/",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "route", ""]
+        },
+        "description": "The routing provider reports this as an HTTP 400 with the reason in the body. Reading that body is what turns it into an honest 404 instead of a generic 502."
+      }
+    },
+    {
+      "name": "5. Missing field  (400 with a useful message)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+              "",
+              "pm.test('names the missing field', () =>",
+              "    pm.expect(pm.response.json()).to.have.property('finish'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": \"New York, NY\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/route/",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "route", ""]
+        },
+        "description": "Input is validated by a DRF serializer, so the error names the field."
+      }
+    }
+  ]
+}

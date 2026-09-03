@@ -1,0 +1,125 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fuel Route Optimizer</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root { --bg:#fff; --fg:#111; --muted:#666; --line:#e3e3e3; --accent:#1a56db; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#15171a; --fg:#eceef1; --muted:#9aa0a6; --line:#2c3034; --accent:#7aa2f7; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+         background:var(--bg); color:var(--fg); display:flex; height:100vh; }
+  #map { flex:1 1 auto; min-width:0; }
+  aside { width:390px; max-width:45vw; overflow-y:auto; border-left:1px solid var(--line); padding:18px; }
+  h1 { font-size:16px; margin:0 0 2px; }
+  .sub { color:var(--muted); font-size:12px; margin-bottom:14px; }
+  .totals { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; }
+  .card { border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .card .k { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+  .card .v { font-size:19px; font-weight:600; font-variant-numeric:tabular-nums; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  th,td { text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); font-size:12px; }
+  th { color:var(--muted); font-weight:500; }
+  td.n { text-align:right; }
+  .pin { color:var(--accent); font-weight:600; }
+  .meta { color:var(--muted); font-size:11px; margin-top:14px; }
+  @media (max-width:820px) { body { flex-direction:column; } aside { width:auto; max-width:none; border-left:0; border-top:1px solid var(--line); } #map { height:52vh; flex:0 0 auto; } }
+</style>
+<div id="map"></div>
+<aside>
+  <h1 id="title"></h1>
+  <div class="sub" id="subtitle"></div>
+  <div class="totals">
+    <div class="card"><div class="k">Total fuel cost</div><div class="v" id="cost"></div></div>
+    <div class="card"><div class="k">Gallons</div><div class="v" id="gal"></div></div>
+    <div class="card"><div class="k">Distance</div><div class="v" id="dist"></div></div>
+    <div class="card"><div class="k">Fuel stops</div><div class="v" id="nstops"></div></div>
+  </div>
+  <table>
+    <thead><tr><th>#</th><th>Stop</th><th class="n">Mile</th><th class="n">$/gal</th><th class="n">Gal</th><th class="n">Cost</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="meta" id="meta"></div>
+</aside>
+<script id="plan" type="application/json">{{ plan_json|safe }}</script>
+<script>
+(function () {
+  const plan = JSON.parse(document.getElementById('plan').textContent);
+  const $ = id => document.getElementById(id);
+  const usd = n => '$' + n.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+  $('title').textContent = plan.start.resolved + '  \u2192  ' + plan.finish.resolved;
+  $('subtitle').textContent = plan.assumptions.max_range_miles + '-mile range \u00b7 '
+    + plan.assumptions.miles_per_gallon + ' MPG \u00b7 stops within '
+    + plan.assumptions.corridor_miles + ' mi of the route';
+  $('cost').textContent = usd(plan.total_fuel_cost_usd);
+  $('gal').textContent = plan.total_gallons.toFixed(1);
+  $('dist').textContent = Math.round(plan.route.distance_miles).toLocaleString() + ' mi';
+  $('nstops').textContent = plan.fuel_stops.length;
+  $('meta').textContent = plan.meta.api_calls + ' external API call(s) \u00b7 planned in '
+    + plan.meta.elapsed_ms + ' ms \u00b7 ' + plan.meta.candidate_stations_near_route
+    + ' candidate stations near this route';
+
+  $('rows').innerHTML = plan.fuel_stops.map(s =>
+    '<tr><td class="pin">' + s.order + '</td><td>' + s.name
+    + '<br><span style="color:var(--muted)">' + s.city + ', ' + s.state
+    + (s.detour_miles ? ' \u00b7 ' + s.detour_miles + ' mi off route' : '') + '</span></td>'
+    + '<td class="n">' + s.miles_from_start.toFixed(0) + '</td>'
+    + '<td class="n">' + s.price_per_gallon.toFixed(3) + '</td>'
+    + '<td class="n">' + s.gallons_purchased.toFixed(1) + '</td>'
+    + '<td class="n">' + usd(s.cost_usd) + '</td></tr>').join('');
+
+  // Inline polyline decoder (precision 5) -- avoids a second library.
+  function decode(str) {
+    const pts = []; let i = 0, lat = 0, lon = 0;
+    while (i < str.length) {
+      let res = 0, shift = 0, b;
+      do { b = str.charCodeAt(i++) - 63; res |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      lat += (res & 1) ? ~(res >> 1) : (res >> 1);
+      res = 0; shift = 0;
+      do { b = str.charCodeAt(i++) - 63; res |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      lon += (res & 1) ? ~(res >> 1) : (res >> 1);
+      pts.push([lat * 1e-5, lon * 1e-5]);
+    }
+    return pts;
+  }
+
+  const map = L.map('map', {zoomControl: true});
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  L.tileLayer(
+    dark ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+         : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    {maxZoom: 19, attribution: '&copy; OpenStreetMap &copy; CARTO'}
+  ).addTo(map);
+
+  const line = decode(plan.route.geometry);
+  L.polyline(line, {color: dark ? '#7aa2f7' : '#1a56db', weight: 4, opacity: 0.85}).addTo(map);
+
+  const ends = [[plan.start.lat, plan.start.lon], [plan.finish.lat, plan.finish.lon]];
+  ends.forEach((c, k) => L.circleMarker(c, {
+    radius: 7, color: '#fff', weight: 2, fillColor: '#111', fillOpacity: 1
+  }).addTo(map).bindPopup(k ? 'Finish' : 'Start'));
+
+  plan.fuel_stops.forEach(s => {
+    L.marker([s.lat, s.lon], {
+      icon: L.divIcon({
+        className: '', iconSize: [22, 22], iconAnchor: [11, 11],
+        html: '<div style="background:#1a56db;color:#fff;border:2px solid #fff;border-radius:50%;'
+            + 'width:22px;height:22px;display:flex;align-items:center;justify-content:center;'
+            + 'font:600 11px system-ui;box-shadow:0 1px 4px rgba(0,0,0,.4)">' + s.order + '</div>'
+      })
+    }).addTo(map).bindPopup(
+      '<b>' + s.name + '</b><br>' + s.city + ', ' + s.state
+      + '<br>$' + s.price_per_gallon.toFixed(3) + '/gal &middot; ' + s.gallons_purchased.toFixed(1)
+      + ' gal &middot; ' + usd(s.cost_usd)
+      + '<br>mile ' + s.miles_from_start.toFixed(0) + ' &middot; ' + s.detour_miles + ' mi off route'
+    );
+  });
+
+  const b = plan.route.bbox;
+  map.fitBounds([[b[0], b[1]], [b[2], b[3]]], {padding: [30, 30]});
+})();
+</script>
