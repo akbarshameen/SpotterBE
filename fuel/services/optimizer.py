@@ -130,7 +130,9 @@ def _check_feasible(points: list[dict], total_miles: float) -> None:
 
 
 def _solve(points: list[dict], total_miles: float) -> tuple[list[tuple[int, float]], float]:
-   
+   #For every station, this finds the index of the next cheaper station ahead
+   #Because j is the nearest cheaper station ahead
+   #one comparison against tank range tells me whether any cheaper station is reachable
     _check_feasible(points, total_miles)
     cheaper = _next_cheaper(points)
 
@@ -145,6 +147,8 @@ def _solve(points: list[dict], total_miles: float) -> tuple[list[tuple[int, floa
         if fuel < -1e-6:
             raise RouteInfeasible(f"ran dry before mile {s['mile']:.0f}")
 
+#here's the entire policy. If a cheaper station is within range, buy just enough to reach it
+#Both branches are forced,there's no third option and no tuning parameter.
         j = cheaper[i]
         if j is not None and points[j]["mile"] - s["mile"] <= MAX_RANGE_MILES:
             target = points[j]["mile"] - s["mile"]  # just reach the cheaper pump

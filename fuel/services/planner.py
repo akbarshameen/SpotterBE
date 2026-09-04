@@ -37,11 +37,11 @@ def google_maps_url(start, finish, stops) -> str:
 
 def build_plan(start_query: str, finish_query: str, corridor_miles: float | None = None) -> dict:
     """Resolve both endpoints, fetch the route, and plan the cheapest fuel stops.
-
-    Raises LocationNotFound, GeocoderUnavailable, RouteNotFound, RoutingError or
-    RouteInfeasible; the views map those onto status codes.
     """
     started = time.perf_counter()
+
+    #resolve calls hit bundled Census data on disk — zero network. 
+    #So get_route on line 49 is the only external call in the system
 
     start = resolve(start_query)
     finish = resolve(finish_query)
