@@ -225,10 +225,11 @@ Huntington County at the bundled point and nowhere near Warren County.
 ## Running locally
 
 ```bash
-git clone https://github.com/akbarshameen/spotter-fuel-optimizer.git
-cd spotter-fuel-optimizer
+git clone https://github.com/akbarshameen/SpotterBE.git
+cd SpotterBE
 python -m venv venv
-pip install -r requirements.txt
+venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 python manage.py runserver
 ```
 
