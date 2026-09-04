@@ -1,9 +1,3 @@
-"""OSRM driving directions -- the single external API call a request needs.
-
-The exercise asks for as few routing calls as possible. Start and finish are
-geocoded locally (see `geocoding.resolve`), so a request makes exactly one call
-here, and zero when the route is already cached.
-"""
 from __future__ import annotations
 
 import polyline

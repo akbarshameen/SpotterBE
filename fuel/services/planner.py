@@ -1,8 +1,4 @@
-"""Composes geocoding, routing and fuel planning into one result.
 
-Both the JSON endpoint and the map preview go through here, so they can never
-disagree about a route.
-"""
 from __future__ import annotations
 
 import time
